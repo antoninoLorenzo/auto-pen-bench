@@ -1,5 +1,3 @@
-version: "3"
-
 # Cryptography vulnerable containers
 services:
     in-vitro_cryptography_vm0:

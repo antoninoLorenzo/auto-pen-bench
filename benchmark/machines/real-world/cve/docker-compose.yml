@@ -1,5 +1,3 @@
-version: "3"
-
 # Real-world vulnerable containers
 services:
     real-world_cve_vm0:

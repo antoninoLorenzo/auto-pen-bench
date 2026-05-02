@@ -11,7 +11,7 @@ setup(
         'chardet==5.2.0',
         'pydantic==2.9.2',
         'ipykernel==6.29.5',
-        'pyyaml==6.0.2',
+        'pyyaml>=6.0.2',
         'openai==1.51.0',
         'instructor==1.5.0',
         'httpx==0.27.2'

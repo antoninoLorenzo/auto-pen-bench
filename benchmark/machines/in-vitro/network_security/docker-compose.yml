@@ -1,5 +1,3 @@
-version: '3'
-
 # Network Security vulnerable containers
 services:
     in-vitro_network_security_vm0:

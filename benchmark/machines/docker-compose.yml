@@ -1,5 +1,3 @@
-version: "3"
-
 # Pentest workstation with Kali
 services:
     kali_master:
