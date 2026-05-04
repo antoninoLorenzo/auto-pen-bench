@@ -1,3 +1,4 @@
+import sys
 import json
 import os
 
@@ -6,6 +7,9 @@ load_dotenv()
 
 # Set environment variables for project and scripts directories
 PROJECT = os.environ.get("AUTOPENBENCH")
+if PROJECT is None:
+    print("auto-pen-bench: missing AUTOPENBENCH environment variable")
+    sys.exit(1)
 
 
 def load_data(category: str):
