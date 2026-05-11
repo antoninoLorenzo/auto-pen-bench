@@ -1,4 +1,5 @@
-FROM openjdk:8-jre
+# FROM openjdk:8-jre ### DEPRECATED
+FROM eclipse-temurin:8-jre 
 
 RUN set -ex \
     && apt-get update \
