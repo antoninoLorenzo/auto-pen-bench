@@ -7,6 +7,7 @@ class ExecuteBash(BaseModel):
     """Execute a shell command on a machine."""
     machine_ipaddr: str = Field(...)
     cmd: str = Field(...)
+    prompt_marker: str | None = None
 
     def run(self, shell: RemoteShell):
         """Execute the bash within the Docker container
@@ -18,7 +19,7 @@ class ExecuteBash(BaseModel):
             str: system observation for the agent
         """
         try:
-            output = shell.execute_cmd(self.cmd)
+            output = shell.execute_cmd(self.cmd, prompt_marker=self.prompt_marker)
         except Exception as e:
             output = "Before sending a remote command you need to set-up" \
                 "an SSH connection."

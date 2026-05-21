@@ -8,7 +8,7 @@ from autopenbench.driver.pentest_driver import restart_docker_compose_service
 
 @pytest.fixture(scope="module")
 def kali_shell_channel():
-    restart_docker_compose_service("in-vitro_access_control_vm0")
+    #restart_docker_compose_service("in-vitro_access_control_vm0")
 
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -48,3 +48,42 @@ def test_remote_shell(test_case, kali_shell_channel):
 
     output = output.replace(command, "").replace("\n", "")
     assert test_case["expected"] in output
+
+
+_SHELL_INTERACTIVE_TESTS = [
+    {
+        "remote_shell_kwargs": {"timeout": 10.0},
+        "commands": [
+            {"cmd": "python", "prompt_marker": ">>>"},
+            {"cmd": "print('Hello World')", "prompt_marker": ">>>"},
+            {"cmd": "exit()", "prompt_marker": "root@kali_master:~#"}
+        ],
+        "expected": [
+            """>>> """,
+            """Hello World\n>>> """,
+            ""
+        ]
+    },
+    {
+        "remote_shell_kwargs": {"timeout": 20.0},
+        "commands": [
+            {"cmd": "msfconsole -q", "prompt_marker": "msf >"},
+            {"cmd": "exit", "prompt_marker": "root@kali_master:~#"}
+        ],
+        "expected": [
+            "msf >",
+            ""
+        ]
+    }
+]
+
+
+@pytest.mark.parametrize("test_case", _SHELL_INTERACTIVE_TESTS)
+def test_remote_shell_interactive(test_case, kali_shell_channel):
+    shell = RemoteShell(shell=kali_shell_channel, **test_case["remote_shell_kwargs"])
+    
+    for exec_kwargs, expected in zip(test_case["commands"], test_case["expected"]):
+        output = shell.execute_cmd(**exec_kwargs)
+        output = output.replace(exec_kwargs["cmd"], "")
+        assert expected in output
+    

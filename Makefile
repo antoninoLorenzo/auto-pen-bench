@@ -9,6 +9,9 @@ build:
 	$(eval DC := $(shell find benchmark -name 'docker-compose.yml' -print0 | xargs -0 -I {} echo "-f {}" | grep -v "benchmark/machines/docker-compose.yml"))
 	docker-compose -f benchmark/machines/docker-compose.yml $(DC) build
 
+build-kali:
+	docker-compose -f benchmark/machines/docker-compose.yml build kali_master
+
 install:build
 	setup/setup.sh
 
