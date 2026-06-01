@@ -19,7 +19,7 @@ class ExecuteBash(BaseModel):
             str: system observation for the agent
         """
         try:
-            output = shell.execute_cmd(self.cmd, prompt_marker=self.prompt_marker)
+            output = shell.execute_cmd(self.cmd)
         except Exception as e:
             output = "Before sending a remote command you need to set-up" \
                 "an SSH connection."
