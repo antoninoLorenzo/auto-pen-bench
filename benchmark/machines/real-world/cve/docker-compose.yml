@@ -138,6 +138,9 @@ services:
 # Network definition
 networks:
     net-main_network:
+        # Contain the benchmark network (no egress to host LAN/internet); see
+        # benchmark/machines/docker-compose.yml for the rationale.
+        internal: true
         ipam:
             config:
                 - subnet: 192.168.0.0/16
