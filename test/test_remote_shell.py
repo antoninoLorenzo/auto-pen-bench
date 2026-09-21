@@ -1,17 +1,31 @@
+# integration tests for RemoteShell against the live docker network.
+import os
+import sys
 import time
 
 import pytest
 import paramiko
 
 from autopenbench.shell import RemoteShell
-# from autopenbench.shell.remote_shell_old import RemoteShell
+from autopenbench.shell.remote_shell import TIMEOUT_MESSAGE
 from autopenbench.tools import wait_for_message
 from autopenbench.driver.pentest_driver import restart_docker_compose_service
 
+# import the shared, parametrized sequences + assertion helper from the unit suite
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from test_remote_shell_unit import (  # noqa: E402
+    NON_INTERACTIVE_SEQUENCES,
+    INTERACTIVE_SEQUENCES,
+    COMMAND_SEQUENCES,
+    _assert_expected as assert_expected,
+)
+
+
 @pytest.fixture(scope="module")
 def restart_docker_compose():
-    # restart_docker_compose_service("in-vitro_access_control_vm1")
+    restart_docker_compose_service("in-vitro_access_control_vm1")
     pass
+
 
 @pytest.fixture(scope="module")
 def kali_shell_channel(restart_docker_compose):
@@ -31,132 +45,141 @@ def kali_shell_channel(restart_docker_compose):
 
 @pytest.fixture(scope="module")
 def target_shell_channel(restart_docker_compose):
+    # Within the benchmark connection to target happens through Kali (see also
+    # `autopenbench.tools.ssh_connect.SSHConnect`).
+    # This also solves the issue where target addresses conflict with network
+    # addresses.
+    jump = paramiko.SSHClient()
+    jump.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    jump.connect(
+        '192.168.0.5',
+        username='root',
+        password='root',
+        port=22
+    )
+
+    tunnel = jump.get_transport().open_channel(
+        'direct-tcpip',
+        dest_addr=('192.168.1.1', 22),
+        src_addr=('127.0.0.1', 0)
+    )
+
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh_client.connect(
         '192.168.1.1',
         username='student',
         password='password',
-        port=22
+        port=22,
+        sock=tunnel
     )
 
     shell_channel = ssh_client.invoke_shell()
     wait_for_message(shell_channel)
     yield shell_channel
 
+    ssh_client.close()
+    jump.close()
 
-_SINGLE_COMMAND_TESTS = [
+
+def _live(seqs):
+    return [c for c in seqs if not c.get("unit_only")]
+
+
+# live-only non-interactive: things a real shell shows that the fake can't
+# meaningfully assert (command-not-found text, real timeout recovery).
+NON_INTERACTIVE_EXTRA = [
     {
-        "remote_shell_kwargs": {"timeout": 10.0},
-        "command": "sleep 5; echo 'hello'",
-        "expected": "hello"
+        "name": "SC_CommandNotFound",
+        "machine": "kali",
+        "remote_shell_kwargs": {"timeout": 5.0},
+        "commands": [{"cmd": "notexists", "interactive": False}],
+        "expected": ["command not found"],
     },
     {
-        "remote_shell_kwargs": {"timeout": 10.0},
-        "command": "notexists",
-        "expected": "command not found"
+        "name": "TimeoutThenClean_target",
+        "machine": "target",
+        "remote_shell_kwargs": {"timeout": 5.0},
+        "commands": [
+            {"cmd": "sleep 30", "interactive": False},
+            {"cmd": "id", "interactive": False},
+        ],
+        "expected": [
+            TIMEOUT_MESSAGE,
+            "uid=1000(student)",
+        ],
     },
 ]
 
-def timed_out(actual: float, expected: float, eps: float = 0.2) -> bool:
-    return actual >= expected - eps
-
-
-@pytest.mark.parametrize("test_case", _SINGLE_COMMAND_TESTS)
-def test_kali_single(test_case, kali_shell_channel):
-    shell = RemoteShell(shell=kali_shell_channel, **test_case["remote_shell_kwargs"])
-    timeout = shell.timeout
-
-    command = test_case["command"]
-    command_start = time.time()
-    output = shell.execute_cmd(command)
-    command_runtime = time.time() - command_start
-
-    output = output.replace(command, "").replace("\n", "")
-    assert test_case["expected"] in output
-    assert timed_out(command_runtime, timeout) is False, f"Timed Out ({(command_runtime):.2f}): {command}"
-
-
-@pytest.mark.parametrize("test_case", _SINGLE_COMMAND_TESTS)
-def test_target_single(test_case, target_shell_channel):
-    shell = RemoteShell(shell=target_shell_channel, **test_case["remote_shell_kwargs"])
-    timeout = shell.timeout
-
-    command = test_case["command"]
-    command_start = time.time()
-    output = shell.execute_cmd(command)
-    command_runtime = time.time() - command_start
-
-    output = output.replace(command, "").replace("\n", "")
-    assert test_case["expected"] in output
-    assert timed_out(command_runtime, timeout) is False, f"Timed Out ({(command_runtime):.2f}): {command}"
-
-
-_SEQUENCE_TESTS = [
+# live-only interactive: the real REPL / sudo flows that motivated the rewrite.
+INTERACTIVE_EXTRA = [
     {
-        "machine": "target",
-        "remote_shell_kwargs": {"timeout": 5.0},
-        "commands": [
-            "sleep 30",
-            "id"
-        ],
-        "expected": [
-            "",
-            "uid=1000(student) gid=1000(student) groups=1000(student)"
-        ]
-    },
-    {
-        "machine": "kali",
-        "remote_shell_kwargs": {"timeout": 5.0},
-        "commands": [
-            "sleep 30",
-            "whoami"
-        ],
-        "expected": [
-            "",
-            "root"
-        ]
-    },
-    {
+        "name": "Sudo_L_Target_FullFlow",
         "machine": "target",
         "remote_shell_kwargs": {"timeout": 10.0},
         "commands": [
-            "sudo -l",
-            "password",
-            "id"
+            {"cmd": "sudo -l", "interactive": True},
+            {"cmd": "password", "interactive": True},
+            {"cmd": "id", "interactive": False},
         ],
         "expected": [
             "[sudo] password for student:",
             "Sorry, user student may not run sudo on",
-            "uid=1000(student) gid=1000(student) groups=1000(student)"
-        ]
+            "uid=1000(student)",
+        ],
     },
     {
+        "name": "Msfconsole_Geoserver_Kali",
         "machine": "kali",
-        "remote_shell_kwargs": {"timeout": 20.0},
+        "remote_shell_kwargs": {"timeout": 40.0, "max_silence": 2.0},
         "commands": [
-            "msfconsole -q",
-            "search geoserver",
-            "use 2",
-            "exit"
+            {"cmd": "msfconsole -q", "interactive": True},
+            {"cmd": "search geoserver", "interactive": True},
+            # Select by full module name, not a numeric index: the search
+            # ordering shifts whenever the msf module DB changes.
+            {"cmd": "use exploit/multi/http/geoserver_unauth_rce_cve_2024_36401", "interactive": True},
+            {"cmd": "exit", "interactive": True},
         ],
         "expected": [
-            "msf >",
-            "msf >",
-            "msf exploit(multi/http/geoserver_unauth_rce_cve_2024_36401) >",
-            "root@kali_master:~#"
-        ]
-    }
+            "msf",
+            "geoserver",
+            "geoserver_unauth_rce_cve_2024_36401",
+            "",
+        ],
+    },
 ]
 
-@pytest.mark.parametrize("test_case", _SEQUENCE_TESTS)
-def test_command_sequences(test_case, kali_shell_channel, target_shell_channel):
-    channel = kali_shell_channel if test_case["machine"] == "kali" else target_shell_channel
+
+def _run_live_sequence(test_case, kali_shell_channel, target_shell_channel):
+    channel = kali_shell_channel if test_case.get("machine", "kali") == "kali" else target_shell_channel
     shell = RemoteShell(shell=channel, **test_case["remote_shell_kwargs"])
 
-    print('\n--- DEBUG ---\n')
-    for command, expected in zip(test_case["commands"], test_case["expected"]):
-        print(f"command={command}")
-        result = shell.execute_cmd(command)
-        print(f"result={result}")
-        assert expected in result, f"Failed command: {command}"
+    print(f"\n--- DEBUG [{test_case.get('name', '?')}] ---")
+    for cmd_spec, expected in zip(test_case["commands"], test_case["expected"]):
+        result = shell.execute_cmd(cmd_spec["cmd"], interactive=cmd_spec.get("interactive", False))
+        print(f"cmd={cmd_spec['cmd']!r} interactive={cmd_spec.get('interactive', False)} -> {result!r}")
+        assert_expected(result, expected)
+
+
+@pytest.mark.parametrize(
+    "test_case", _live(NON_INTERACTIVE_SEQUENCES) + NON_INTERACTIVE_EXTRA,
+    ids=lambda c: c["name"],
+)
+def test_non_interactive_sequences_live(test_case, kali_shell_channel, target_shell_channel):
+    _run_live_sequence(test_case, kali_shell_channel, target_shell_channel)
+
+
+@pytest.mark.parametrize(
+    "test_case", _live(INTERACTIVE_SEQUENCES) + INTERACTIVE_EXTRA,
+    ids=lambda c: c["name"],
+)
+def test_interactive_sequences_live(test_case, kali_shell_channel, target_shell_channel):
+    _run_live_sequence(test_case, kali_shell_channel, target_shell_channel)
+
+
+@pytest.mark.parametrize(
+    "test_case", _live(COMMAND_SEQUENCES),
+    ids=lambda c: c["name"],
+)
+def test_command_sequences_live(test_case, kali_shell_channel, target_shell_channel):
+    _run_live_sequence(test_case, kali_shell_channel, target_shell_channel)

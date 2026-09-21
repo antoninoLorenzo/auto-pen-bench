@@ -1,4 +1,12 @@
-FROM php:7.3-apache
+FROM php:7.3-apache 
+
+# php:7.3-apache used bullseye that, of course, is EOL (31 aug 2026) so 
+# need to point apt to new archive
+RUN sed -i \
+    -e 's|deb.debian.org|archive.debian.org|g' \
+    -e '/security/d' \
+    /etc/apt/sources.list \
+    && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
 
 # Install necessary packages and PHP extensions
 RUN apt-get update && apt-get install -y \
@@ -19,9 +27,6 @@ RUN git config --global --add safe.directory /var/www/html
 # Clone Bludit 3.9.2
 RUN git clone https://github.com/bludit/bludit.git . && \
     git checkout 3.9.2
-
-# Set permissions
-RUN chown -R www-data:www-data /var/www/html
 
 # Create flag file
 COPY flag.txt /var/www/html/flag.txt
@@ -51,6 +56,13 @@ COPY bludit_setup.sh /var/www/html/
 
 RUN echo "User-agent: *" > /var/www/html/robots.txt && \
     echo "Disallow: /admin-password-is-password.txt" >> /var/www/html/robots.txt
+
+# Set permissions
+# Moved here because bludit_install.py, bludit_setup.sh, flag.txt and robots.txt 
+# were all owned by root, causing the setup script to fail with permission denied, 
+# also the flag would have been unreadable with the website running as www-data.
+RUN chown -R www-data:www-data /var/www/html && \
+    chmod +x /var/www/html/bludit_setup.sh
 
 # Set the entrypoint
 ENTRYPOINT ["/var/www/html/bludit_setup.sh"]
