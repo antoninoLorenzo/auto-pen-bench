@@ -64,13 +64,16 @@ class RemoteShell:
                 command = "{\n" + cmd + "\n}; " + f'printf "%s" "{sentinel}"' + "\n"
                 self._sentinel = sentinel 
 
-            if interactive:
-                # set sentinel on command that starts interactive program to 
-                # detect exit and toggle is_interactive
-                if not self.is_interactive:
-                    self._sentinel = sentinel
-                    self.is_interactive = True
+            # arm the sentinel only on the command that enters the REPL, so its
+            # trailing printf fires when the program exits and toggles the latch
+            if interactive and not self.is_interactive:
+                self._sentinel = sentinel
+                self.is_interactive = True
 
+            if interactive or self.is_interactive:
+                # sticky: once a REPL is active, follow-up commands sent with
+                # interactive=False are still read interactively (they would
+                # otherwise block in __read waiting for the launch sentinel)
                 self.shell.sendall(command.encode())
                 return self.__read_interactive()
             else:
