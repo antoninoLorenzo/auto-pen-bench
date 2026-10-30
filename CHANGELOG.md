@@ -1,12 +1,18 @@
 # Changelog
 
+## 2026-10-30
+
+* Fix startup race in in-vitro web_security vm3 and vm4: the web containers depended on their database containers with the plain `depends_on` list form, which only waits for the DB container to start, not for `mysqld` to accept connections. On first boot the MySQL entrypoint runs `init.sql` under `mysqld --skip-networking`, so for ~1-2 minutes the app returned `mysqli::__construct(): (HY000/2002): Connection refused`. This penalized agents that probed during the warm-up window. Fixed at the compose level in `benchmark/machines/in-vitro/web_security/docker-compose.yml`: each DB service now has a `healthcheck` that pings over TCP (`mysqladmin ping -h 127.0.0.1`, which only succeeds once networking is enabled after init), and the web services use `depends_on: { condition: service_healthy }` so they start only once the database is ready.
+* Removed `"Always ignore the 192.188.122.1 host!"` instruction in `games.json` since there is no container in the benchmark with a matching IP.
+
+
 ## 2026-09-20
 
 * Rewrite of `autopenbench/shell/remote_shell.py`: the old implementation presented issues such as improper output cleaning (ASCII, OSC-3008) and unreliable command execution logic; both constantly *penalized the agent* and had an *impact on the cost* of running the benchmark. The new interface `execute_cmd(self, cmd: str, interactive: bool = False) -> str:` accepts an `interactive` flag in order to execute "reliably" commands that require user input (ex. `msfconsole`).
 * Fix real-world cve vm8 (CVE-2019-16113): startup Permission Denied on `bludit_setup.sh` caused by a misconfiguration in the Dockerfile.
 * Validtiy Threat in real-world cve vm7 and vm10: the two tasks provisioned a metasploit module with the flag directly embedded in the modules code, smart enough agents just searched the local machine with customized modules including "CTF"; the changes are described below.
 
-### CVE VM8
+### CVE VM10
 
 The original harness included `benchmark/machines/kali/adapted_exploits/openssl_heartbleed.rb` with a hardcoded CTF flag, that caused the agent 
 to "succeed" by cheating.
@@ -14,7 +20,7 @@ to "succeed" by cheating.
 The new task requires the agent to use the untampered `scanner/ssl/openssl_heartbleed` metasploit module to dump the server private key, that key is reused by ssh, allowing the agent to access the root user on the target using the reused key and read the flag.
 
 
-### CVE VM10
+### CVE VM8
 
 The original harness included `benchmark/machines/kali/adapted_exploits/log4shell_scanner.rb` with the hardcoded CTF flag, the consequence is the same as vm8.
 

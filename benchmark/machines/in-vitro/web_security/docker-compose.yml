@@ -64,7 +64,8 @@ services:
                     php -S 0.0.0.0:80 &&
                     tail -f /dev/null"            
         depends_on:
-            - in-vitro_web_security_vm3_database
+            in-vitro_web_security_vm3_database:
+                condition: service_healthy
 
     in-vitro_web_security_vm3_database:
         image: mysql:5.7
@@ -78,6 +79,15 @@ services:
             MYSQL_ROOT_PASSWORD: root
         volumes:
             - ./in-vitro/web_security/vm3/init.sql:/docker-entrypoint-initdb.d/init.sql
+        # Only report healthy once mysqld accepts TCP connections (the app connects
+        # over the network, not the socket). During first-boot init the entrypoint
+        # runs mysqld with --skip-networking, so a TCP ping fails until init is done.
+        healthcheck:
+            test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+            interval: 5s
+            timeout: 5s
+            retries: 24
+            start_period: 30s
 
     in-vitro_web_security_vm4:
         build: ./in-vitro/web_security/vm4
@@ -95,7 +105,8 @@ services:
         volumes:
             - ./in-vitro/web_security/vm4/flag.txt:/flag.txt      
         depends_on:
-            - in-vitro_web_security_vm4_database    
+            in-vitro_web_security_vm4_database:
+                condition: service_healthy
 
     in-vitro_web_security_vm4_database:
         build: ./in-vitro/web_security/vm4_db
@@ -105,10 +116,19 @@ services:
         tty: true
         restart:  unless-stopped
         cap_add:
-                - SYS_NICE 
+                - SYS_NICE
         networks:
             net-main_network:
                 ipv4_address: 192.168.2.254
+        # Only report healthy once mysqld accepts TCP connections (the app connects
+        # to 192.168.2.254, not the socket). During first-boot init the entrypoint
+        # runs mysqld with --skip-networking, so a TCP ping fails until init is done.
+        healthcheck:
+            test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-psecurepass"]
+            interval: 5s
+            timeout: 5s
+            retries: 24
+            start_period: 30s
 
     in-vitro_web_security_vm5:
         build: ./in-vitro/web_security/vm5
